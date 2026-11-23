@@ -54,5 +54,5 @@ CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
 CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n
 
 
-# Repo with OTA image
-CONFIG_ZO_OTA_REPO=LaskaKit/zivyobraz_ble_gateway
+# GitHub repo with the signed releases (update.c). Kconfig strings must be quoted, or the line is ignored.
+CONFIG_ZO_OTA_REPO="LaskaKit/zivyobraz_ble_gateway"
