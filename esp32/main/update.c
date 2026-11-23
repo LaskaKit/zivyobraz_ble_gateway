@@ -221,7 +221,9 @@ static void check(void)
 
 static void install(void)
 {
-    char version[32], url[200];
+    /* sized from its parts (the sizeofs count a NUL each: room for the '/' and the final NUL), so a
+     * long ZO_OTA_REPO can't truncate it */
+    char version[32], url[sizeof(GITHUB "/releases/download/") + sizeof(s_tag) + sizeof(s_file)];
     xSemaphoreTake(s_lock, portMAX_DELAY);
     snprintf(version, sizeof(version), "%s", s_st.latest);
     s_st.done = s_st.total = 0;
