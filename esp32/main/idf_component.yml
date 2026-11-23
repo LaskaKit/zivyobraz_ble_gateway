@@ -1,0 +1,7 @@
+dependencies:
+  idf: ">=6.1"
+  espressif/lan87xx: "^1.1.0"      # LAN8720A PHY driver (moved out of ESP-IDF in v6)
+  espressif/cjson: "^1.7.19"       # tags.json
+  espressif/mdns: "^1.11.3"        # zo-ble-gateway.local
+  espressif/led_strip: "^3.0.3"    # SK6812 status LED
+  joltwallet/littlefs: "^1.22.3"   # /data: tag list and previews

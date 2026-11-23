@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+captures/
+data/
+# ESP-IDF (esp32/)
+esp32/build/
+esp32/managed_components/
+esp32/sdkconfig
+esp32/sdkconfig.old
+esp32/dist/
+# the firmware signing key (esp32/release.sh): never commit it
+esp32/signing_key.pem
+*.pem
+esp32/test/host/build/
+# editor / linter caches
+.cache/
+.ruff_cache/

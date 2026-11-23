@@ -1,0 +1,74 @@
+menu "Zivy obraz BLE Gateway"
+
+    config ZO_HOSTNAME
+        string "Host name (DHCP and mDNS: <name>.local)"
+        default "zo-ble-gateway"
+
+    config ZO_SERVER_URL
+        string "zivyobraz.eu endpoint"
+        default "https://cdn.zivyobraz.eu/index.php?timestampCheck=1"
+
+    config ZO_MIN_INTERVAL
+        int "Default: ask zivyobraz.eu at most every N seconds per tag"
+        default 60
+        help
+            Changeable on the web page; this is the factory value.
+
+    config ZO_MAX_INTERVAL
+        int "Default: ask at least every N seconds"
+        default 86400
+
+    config ZO_TIMEZONE
+        string "Time zone (POSIX TZ) for the web page"
+        default "CET-1CEST,M3.5.0,M10.5.0/3"
+
+    config ZO_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+
+    config ZO_WEB_OTA
+        bool "Firmware update from the web page"
+        default y
+        help
+            The page has no password (home LAN). Turn this off if anyone on your LAN
+            shouldn't be able to replace the firmware.
+
+    config ZO_OTA_REPO
+        string "GitHub repository with the releases (owner/name, empty = no update check)"
+        default ""
+        help
+            The gateway looks for https://github.com/<owner/name>/releases/latest/download/latest.json
+            (made by release.sh) and offers the newer version on the settings page; it installs
+            only when asked, and only a release signed with the running firmware's key.
+
+    config ZO_OTA_CHECK_HOURS
+        int "Look for a new release every N hours (0 = only when asked)"
+        depends on ZO_OTA_REPO != ""
+        default 24
+
+    menu "Board (LaskaKit ESPlan)"
+        config ZO_ETH_MDC_GPIO
+            int "Ethernet MDC GPIO"
+            default 23
+        config ZO_ETH_MDIO_GPIO
+            int "Ethernet MDIO GPIO"
+            default 18
+        config ZO_ETH_PHY_RST_GPIO
+            int "LAN8720 nRST GPIO (-1 = none)"
+            default 5
+        config ZO_ETH_PHY_ADDR
+            int "LAN8720 PHY address (-1 = find it)"
+            default -1
+        config ZO_ETH_CLK_OUT_GPIO
+            int "RMII 50 MHz clock output GPIO (ESP32: 16 or 17)"
+            default 17
+        config ZO_STATUS_LED
+            bool "SK6812 status LED"
+            default y
+        config ZO_STATUS_LED_GPIO
+            int "Status LED GPIO (ESPlan v2.1: 0, older: 35 is input-only, so turn the LED off)"
+            depends on ZO_STATUS_LED
+            default 0
+    endmenu
+
+endmenu
