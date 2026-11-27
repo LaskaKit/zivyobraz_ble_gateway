@@ -13,6 +13,12 @@ diagrams are ours.
 Our starting point for the protocol was the dratek-eink-homeassistant project (see Credits in
 [README.md](README.md#credits)).
 
+**Vendor document** (2026-11-27): the tag maker's "Bluetooth Tag Protocol V1.5" (18 pages, a `NEMR…` tag
+in its example) describes this same protocol. It agrees with everything below except where noted
+("vendor:"). It gives **no** timeouts, retries, pacing or pixel layouts. Every number in §4.3–§4.5
+and every encoding in §5 is ours, measured on our tags. It does not cover the hoootag `EPD-…` tags
+(those expose a `FFE0`/`FFE1`/`FFE2` service, no `FEF0` and no `0x5053` advert).
+
 ## 1. Hardware and identification
 
 Picksmart labels (also sold as Gicisky, and by DRATEK). Telink TLSR825x SoC, CR2450 cell.
@@ -38,6 +44,11 @@ Manufacturer-specific data, company id **`0x5053`**, at least 5 bytes:
   the image must be wrapped in the stored-block framing of §5.5.
 * `sdk_type = raw_type & 0x3FFF` selects the panel (§2). If that isn't a supported type, try
   `raw_type & 0xFF`. Anything else is unsupported: show it as unknown and don't transfer.
+* Vendor: the type is a bit field. Bit 0 = image type (vendor's table: 0 two images, 1 single), bits 1–2
+  colour (00 BW, 01 BWR), bits 3–4 and 14–15 panel maker, bits 5–11 resolution (`0000010` = 400×300).
+  Its appendix lists only **72 = 400×300 BW** and **75 = 400×300 BWR**. We **don't** decode types from
+  the bit field. It doesn't fit what we see: SDK 75 is odd but takes two planes, and our raw-planes flag
+  is the vendor's "maker" bit 14. Types come from the §2 table only.
 
 ## 2. Supported panels
 
@@ -49,8 +60,8 @@ for the physical tags (they differ from the usual panel naming, on purpose).
 | 46  | 2.13" | BWRY | 296×128 | set   | 2 bpp, rotated     | 9 472  | `…92:85:05:77`, `…92:85:05:74` | picture correct, ~18 s |
 | 75  | 4.2"  | BWR  | 400×300 | set   | two planes         | 30 000 | `…92:81:34:40`, `…92:81:34:41` | picture correct, ~5 s |
 | 160 | 2.9" TFT | BW | 250×122 | set   | row pairs          | 8 250  | `…92:82:98:22` | picture correct; connect often needs 2–3 tries |
-| 270 | 2.9"  | BWRY | 250×128 | set   | 2 bpp, rotated     | 8 000  | `…92:80:96:05`, `…92:80:93:93` | transfer OK and refreshes, ~2 s; **orientation not yet checked by eye** |
-| 299 | 7.5"  | BWR  | 800×480 | **clear** | two planes, flipped, inverted first plane; framed | 96 000 (100 504 framed) | `…92:83:09:53` | picture correct, 419 blocks, ~45 s |
+| 270 | 2.9"  | BWRY | 250×128 | set   | 2 bpp, rotated     | 8 000  | `…92:80:96:05`, `…92:80:93:93` | picture and orientation correct (ruler, `…96:05`, 2026-11-27), ~2 s |
+| 299 | 7.5"  | BWR  | 800×480 | **clear** | two planes, flipped, inverted first plane; framed | 96 000 (100 504 framed) | `…92:83:09:53` | picture correct, 419 blocks, ~18 s |
 
 2026-11-20: the clean-room rewrite of both gateways (from this document) was run on the hardware with
 `…92:81:34:41` (SDK 75, transfer OK twice, `05 08` received). The other tags were out of range that day, so
@@ -103,12 +114,19 @@ All integers little-endian. `→` = gateway to tag, `←` = notification from ta
 * The block-size request may go unanswered. Ask again once before giving up.
 * Ignore notifications that don't match what you're waiting for (log them at debug level).
 * Seen 2026-11-20 on SDK 75 (`…34:41`): the prepare answer is 3 bytes, `02 00 75`. Only the second byte matters.
+* Vendor: the prepare example is only 5 bytes (`02 60 09 00 00`). Our tags need the 8 bytes above.
+* Vendor: the data part of a block is at most 240 bytes. That is `block_size − 4` at the usual 244.
+* Vendor: `→ 04` cancels, answered by `04 <status>` (00 = OK). Tried 2026-11-27 on SDK 75 (`…34:41`)
+  after three blocks: **no answer** within 10 s, and the tag answered a new `01` normally afterwards.
+  So we don't use it. An aborted transfer just disconnects.
 
 ### 4.2 Errors and resends
 
 * `← 05 00 <index>` arriving **after** blocks have been sent is a resend request: continue from `index`.
 * If the same `index` is requested more than **5** times, abort.
 * `index ≥ block count` → abort (protocol error).
+* `← 05 <status>` with any status other than `00` and `08` is a **transfer error** (vendor) → abort
+  at once. Don't wait for `05 08`, and don't count a later silence as success. Never seen on our tags.
 * `05 08` is the success signal. Some firmware never sends it after the last block; a missing `05 08`
   after a fully sent stream counts as success (the panel usually refreshes anyway).
 
@@ -120,8 +138,8 @@ block back to back without waiting for notifications. The tags differ in how fas
 | SDK | data writes to `FEF2` | gap after each block | last block | wait for `05 08` after last block |
 |---|---|---|---|---|
 | 46 | **with response**, every block | 5 ms | with response | 2 s |
-| 75, 160, 270 | without response | 40 ms | without response | 20 s |
-| 299 | without response | 100 ms | **with response** (a delivery fence) | 60 s |
+| 75, 160, 270 | without response | 5 ms (was 40 ms until 2026-11-27) | without response | 20 s |
+| 299 | without response | 20 ms (was 100 ms until 2026-11-27) | **with response** (a delivery fence) | 60 s |
 
 * SDK 46 silently drops a stream of unacknowledged writes: transfer "succeeds", picture doesn't change.
 * SDK 299 doesn't answer acknowledged writes reliably mid-stream, so only the last block asks for a
@@ -130,13 +148,34 @@ block back to back without waiting for notifications. The tags differ in how fas
 * A block is never sent twice unless the tag asks for it (§4.2). Resending framed data corrupts the image.
 * Measured 2026-11-20 (rewritten Python gateway, BlueZ, SDK 75 `…34:41`): with the 40 ms gap after each
   unacknowledged write, the 125 blocks took 5.1 s (~41 ms per block); `05 08` came 5.9 s after the last block.
+* **Gap sweep 2026-11-27** (Python gateway, BlueZ, ruler pattern, one connection per gap). Every gap down
+  to **0 ms** gave `05 08`, no resend requests, and a clean picture on every tag (checked by eye). Times
+  are from the first block to `05 08` ("send + wait"):
+
+  | SDK, tag | blocks | gaps tried | send + wait for `05 08` | chosen gap |
+  |---|---|---|---|---|
+  | 75 `…34:41` (twice) | 125 | 40 / 20 / 10 / 5 / 0 ms | 5.9 / 3.4 / 2.1 / 1.8 / 1.8 s | 5 ms |
+  | 160 `…98:22` | 35 | 40 / 20 / 10 / 5 / 0 ms | 1.9 / 1.3 / 0.9 / 0.8 / 0.8 s | 5 ms |
+  | 270 `…96:05` | 34 | 40 / 20 / 10 / 5 / 0 ms | 1.9 / 1.2 / 0.8 / 0.8 / 0.8 s | 5 ms |
+  | 299 `…09:53` | 419 | 100 / 50 / 20 / 10 / 5 / 0 ms | 43.5 / 22.4 / 17.6 / 17.4 / 17.4 / 18.0 s | 20 ms |
+  | 46 `…05:77` | 40 | 5 / 2 / 0 ms | 18.2 / 18.1 / 18.1 s | 5 ms (unchanged) |
+
+  The tags have a throughput floor (SDK 75 ~14 ms per block, SDK 299 ~41 ms). Below it the blocks only
+  queue up in the host's Bluetooth stack: sending ends sooner but `05 08` comes later, total unchanged.
+  The chosen gap is the smallest one at the floor, which leaves a margin and keeps the queue short.
+  SDK 46 takes ~450 ms per block because every write waits for its response, so the gap doesn't matter
+  there. Writes without response would be faster, but this tag drops them (above).
 
 ### 4.4 Legacy firmware (`sw & 0x80` clear)
 
 Not seen on any tag here, so **unverified**. Supported only as a fallback: send exactly one block per
-`← 05 00` notification, then wait (12 s) for the next one. `05 08` after the last block ends the transfer; `05 08` earlier is an error.
+`← 05 00` notification, then wait (12 s) for the next one. This is the flow the vendor document draws
+(its example tag advertises `sw = 0x01`). The document doesn't mention streaming at all. `05 08` after the last block ends the transfer; `05 08` earlier is an error.
 
 ### 4.5 Timeouts
+
+All of these are ours: the vendor document has no timeouts or retries. (It only shows asking for
+MTU 255 after subscribing.)
 
 | step | timeout | notes |
 |---|---|---|
@@ -149,7 +188,13 @@ Not seen on any tag here, so **unverified**. Supported only as a fallback: send 
 | `02` prepare answer | 10 s | |
 | first `05 00` after `03` start | 12 s | |
 | disconnect | 5 s | errors on disconnect are logged, not raised |
-| whole transfer (gateway level) | 240 s | covers the slowest tag (299, ~45 s) plus connect retries |
+| whole transfer (gateway level) | 240 s | covers the slowest tags (46 and 299, ~18 s) plus connect retries |
+
+Connecting, not sending, is most of the time on this PC (2026-11-27, SDK 75 `…34:41`). Finding the
+tag took 0.2–20 s and connecting 1.5–12 s, sometimes timing out at 20 s. The tags advertise about once a
+second (shortest gap heard 1.0 s), but the PC's MediaTek MT7922 WiFi+BT combo chip heard only 4–5
+adverts in 30 s at −40 dBm. Connecting straight to the BLEDevice from the scan just done, instead of
+scanning again, was tried: one run saved the scan, two timed out at 20 s, so it wasn't kept.
 
 Only one transfer at a time per radio. A single adapter does one transfer reliably, not several in parallel.
 

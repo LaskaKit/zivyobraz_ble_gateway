@@ -27,8 +27,8 @@ class Pacing:
 
 
 ACKED = Pacing("acked", ack_every_block=True, ack_last_block=True, gap=0.005, done_wait=2.0)
-STREAM = Pacing("stream", ack_every_block=False, ack_last_block=False, gap=0.040, done_wait=20.0)
-FENCED = Pacing("fenced", ack_every_block=False, ack_last_block=True, gap=0.100, done_wait=60.0)
+STREAM = Pacing("stream", ack_every_block=False, ack_last_block=False, gap=0.005, done_wait=20.0)
+FENCED = Pacing("fenced", ack_every_block=False, ack_last_block=True, gap=0.020, done_wait=60.0)
 
 
 @dataclass(frozen=True)

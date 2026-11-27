@@ -10,8 +10,14 @@
 # make one, with ESP-IDF activated: `espsecure generate-signing-key --version 2 --scheme rsa3072 signing_key.pem`).
 # A gateway running signed firmware installs only updates signed with the same key.
 #
+# With the key, the build uses sdkconfig.defaults + sdkconfig.release (signature check on update) in
+# build-release/. Without it, a plain unsigned dev build in build-unsigned/ (it boots, but refuses updates):
+# ESP-IDF won't boot an unsigned app that has the signature check on.
+# Both start from the defaults alone (their own sdkconfig), so a local menuconfig never leaks into a release.
+#
 #   ./release.sh                 sign if the key is there, else build unsigned (with a warning)
 #   ./release.sh --tag v0.3.0    a release: the key is required and the tag must be v<version.txt>
+#   --out DIR                    write the files to DIR instead of dist/ (DIR is emptied first)
 set -eu
 cd "$(dirname "$0")"
 # (EIM's activation script makes idf.py a shell function, which scripts don't inherit)
@@ -24,38 +30,54 @@ APP=build/zivyobraz-ble-gateway.bin
 KEY="${ZO_SIGNING_KEY:-signing_key.pem}"
 
 TAG=""
-if [ "${1:-}" = "--tag" ]; then
-    TAG="${2:-}"
+OUT=dist
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --tag) TAG="${2:-}"; shift 2 ;;
+        --out) OUT="${2:?--out needs a directory}"; shift 2 ;;
+        *) echo "unknown option $1"; exit 1 ;;
+    esac
+done
+if [ -n "$TAG" ]; then
     [ "$TAG" = "v$VER" ] || { echo "tag '$TAG' doesn't match version.txt ($VER): expected v$VER"; exit 1; }
     [ -s "$KEY" ] || { echo "a release must be signed, but there is no key at $KEY"; exit 1; }
 fi
 
-idf build
+if [ -s "$KEY" ]; then
+    SIGNED=yes
+    BUILD=build-release
+    DEFAULTS="sdkconfig.defaults;sdkconfig.release"
+else
+    SIGNED=no
+    BUILD=build-unsigned
+    DEFAULTS="sdkconfig.defaults"
+fi
+APP="$BUILD/zivyobraz-ble-gateway.bin"
+build() { idf -B "$BUILD" -D SDKCONFIG="$BUILD/sdkconfig" -D SDKCONFIG_DEFAULTS="$DEFAULTS" "$@"; }
+
+build build
 
 # sign before merging, so the full image carries the signed app too
-if [ -s "$KEY" ]; then
+if [ "$SIGNED" = yes ]; then
     "$PY" -m espsecure sign-data --version 2 --keyfile "$KEY" --output "$APP.signed" "$APP"
     mv "$APP.signed" "$APP"
     "$PY" -m espsecure verify-signature --version 2 --keyfile "$KEY" "$APP"
-    SIGNED=yes
-else
-    SIGNED=no
 fi
-idf merge-bin -f raw -o "$PWD/build/$NAME-full.bin"
+build merge-bin -f raw -o "$PWD/$BUILD/$NAME-full.bin"
 
-rm -rf dist
-mkdir dist
-cp "build/$NAME-full.bin" "dist/$NAME-full.bin"
-cp "$APP" "dist/$NAME-ota.bin"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+cp "$BUILD/$NAME-full.bin" "$OUT/$NAME-full.bin"
+cp "$APP" "$OUT/$NAME-ota.bin"
 printf '{"project": "zivyobraz-ble-gateway", "version": "%s", "tag": "v%s", "file": "%s"}\n' \
-    "$VER" "$VER" "$NAME-ota.bin" > dist/latest.json
-(cd dist && sha256sum *.bin latest.json > SHA256SUMS)
-ls -l dist
+    "$VER" "$VER" "$NAME-ota.bin" > "$OUT/latest.json"
+(cd "$OUT" && sha256sum *.bin latest.json > SHA256SUMS)
+ls -l "$OUT"
 echo
 if [ "$SIGNED" = no ]; then
     echo "WARNING: UNSIGNED build (no key at $KEY). Gateways running signed firmware refuse it as an update,"
     echo "         and this firmware itself can't verify (so refuses) any update. Fine for USB development only."
     echo
 fi
-echo "First install (USB):  esptool --chip esp32 write-flash 0x0 dist/$NAME-full.bin"
-echo "Update:               GitHub release v$VER with these files, or web page -> gateway settings -> upload dist/$NAME-ota.bin"
+echo "First install (USB):  esptool --chip esp32 write-flash 0x0 $OUT/$NAME-full.bin"
+echo "Update:               GitHub release v$VER with these files, or web page -> gateway settings -> upload $OUT/$NAME-ota.bin"

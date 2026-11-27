@@ -1,0 +1,9 @@
+# Release builds only: release.sh builds with "sdkconfig.defaults;sdkconfig.release" in build-release/
+# and then signs the app (signing_key.pem or $ZO_SIGNING_KEY). SECURITY.md, option A: an update (web upload
+# or GitHub) is installed only if it is signed with the same RSA-3072 key as the running firmware.
+# No secure boot, no eFuses burned. ESP-IDF aborts at boot an app built with these options that
+# isn't signed, so never flash an unsigned build-release/ app.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n

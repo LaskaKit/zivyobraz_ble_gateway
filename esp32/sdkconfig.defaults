@@ -43,15 +43,11 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 CONFIG_MDNS_PREDEF_NETIF_STA=n
 CONFIG_MDNS_PREDEF_NETIF_AP=n
 
-# Signed firmware (SECURITY.md, option A): an update (web upload or GitHub) is installed only if it
-# is signed with the same RSA-3072 key as the running firmware. No secure boot, no eFuses burned.
-# The build leaves the app unsigned; release.sh signs it (signing_key.pem or $ZO_SIGNING_KEY).
-# RSA needs chip revision 3 (every ESP32-WROOM-32E).
+# Signed firmware (SECURITY.md, option A) is switched on in sdkconfig.release, which only release.sh uses.
+# Not here: ESP-IDF aborts at boot an unsigned app that has "check signature on update" on, so a plain
+# `idf.py build`/`flash` (never signed) would boot-loop. A dev build boots and refuses every update (update.c).
+# RSA needs chip revision 3 (every ESP32-WROOM-32E); kept for dev builds too, so both run on the same boards.
 CONFIG_ESP32_REV_MIN_3=y
-CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
-CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
-CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
-CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n
 
 
 # GitHub repo with the signed releases (update.c). Kconfig strings must be quoted, or the line is ignored.

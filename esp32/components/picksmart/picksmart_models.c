@@ -7,8 +7,8 @@
 #include "picksmart.h"
 
 static const ps_pacing_t ACKED = {"acked", true, true, 5, 2000};
-static const ps_pacing_t STREAM = {"stream", false, false, 40, 20000};
-static const ps_pacing_t FENCED = {"fenced", false, true, 100, 60000};
+static const ps_pacing_t STREAM = {"stream", false, false, 5, 20000};
+static const ps_pacing_t FENCED = {"fenced", false, true, 20, 60000};
 
 static const ps_model_t MODELS[] = {
     {46, 296, 128, PS_COLOURS_BWRY, PS_ENC_2BPP_ROTATED, &ACKED, "2.13in 296x128 BWRY"},

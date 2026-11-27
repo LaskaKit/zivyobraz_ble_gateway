@@ -5,6 +5,8 @@ captures/
 data/
 # ESP-IDF (esp32/)
 esp32/build/
+esp32/build-release/
+esp32/build-unsigned/
 esp32/managed_components/
 esp32/sdkconfig
 esp32/sdkconfig.old

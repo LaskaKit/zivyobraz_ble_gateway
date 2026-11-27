@@ -78,18 +78,22 @@ for each `v*` tag.
 | **E. Delta / compressed OTA** (`espressif/esp_delta_ota`) | Sends a patch instead of the full app. | Medium. | None. | Not worth it: Ethernet, a 3 MB slot, and an app of about 0.9 MB. |
 
 **Implemented (2026-11-23): A + B, notify and install on click.** See the [README](README.md#updates).
-* A: `sdkconfig.defaults` (`SECURE_SIGNED_APPS_NO_SECURE_BOOT`, RSA, `SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT`,
-  `ESP32_REV_MIN_3`, build unsigned). `release.sh` signs with `signing_key.pem` / `$ZO_SIGNING_KEY` and verifies
+* A: `sdkconfig.release` (`SECURE_SIGNED_APPS_NO_SECURE_BOOT`, RSA, `SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT`,
+  build unsigned), used by `release.sh` only; `ESP32_REV_MIN_3` is in `sdkconfig.defaults`. `release.sh` signs with `signing_key.pem` / `$ZO_SIGNING_KEY` and verifies
   the signature. CI gets the key from the `ZO_SIGNING_KEY` secret, on tag builds only. The trusted key is
-  the one in the *running* app's signature block (ESP-IDF `secure_boot_signatures_app.c`), so an unsigned
-  development build refuses every update (`update.c` reports this on the settings page).
+  the one in the *running* app's signature block (ESP-IDF `secure_boot_signatures_app.c`).
+  A development build (`sdkconfig.defaults` alone) has no signature check at all, so our code refuses every
+  update there: `update.c` sets `signed_app = false` and both the GitHub install and the web upload
+  (`update_post`) check it. Moved out of `sdkconfig.defaults` on 2026-11-27: ESP-IDF v6.1.1 aborts at boot
+  an unsigned app built with the check on, so every plain `idf.py flash` boot-looped.
 * B: `main/update.c`. `latest.json` comes from `releases/latest/download/`, which is not GitHub's API, so there's
   no rate limit; the binary comes from `releases/download/<tag>/<file>` through `esp_https_ota`. The project
   name and version in the image header are checked before anything is written. It runs in the gateway task
   between polls, so TLS never overlaps a BLE transfer or a zivyobraz fetch. GitHub's redirect URL is
   about 1 kB, hence the 2 kB TX buffer.
-* Not tested on a board yet (2026-11-23): first install of a signed build, a check against a real release, an
-  install, and a refusal of a wrongly signed image.
+* Tested on the board 2026-11-27: a signed build boots and allows updates; the signed build refuses an
+  unsigned upload ("isn't signed with this gateway's key"); a dev build boots and refuses an upload, even a
+  signed one. Not tested yet: a check against a real GitHub release, and a full install.
 
 **Original recommendation:** do A first. It's cheap, reversible, and turns the web upload from "anyone can flash" into
 "only your releases". Add the CSRF and Host guard from §2 at the same time. B is a nice convenience

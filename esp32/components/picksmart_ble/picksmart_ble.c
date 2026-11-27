@@ -50,6 +50,7 @@ static const char *TAG = "picksmart_ble";
 #define MSG_DATA 0x05
 #define DATA_REQUEST 0x00
 #define DATA_DONE 0x08
+/* CMD_CANCEL 0x04 is in the vendor document, but our tags don't answer it (§4.1); not used */
 #define BLOCK_HEADER 4
 #define MAX_REQUESTS 5 /* §4.2 */
 #define MAX_BLOCK 512
@@ -651,25 +652,38 @@ static void flush_rx(void)
 }
 
 typedef bool (*want_fn)(const rx_msg_t *m);
+typedef enum { RX_OK, RX_TIMEOUT, RX_TAG_ERROR } rx_result_t;
 
-/* The first notification `want` accepts; others are ignored (§4.1). false on timeout. */
-static bool wait_rx(want_fn want, int timeout_ms, rx_msg_t *out)
+/* §4.2: a `05` status other than 00 and 08 is a transfer error */
+static bool is_tag_error(const rx_msg_t *m)
+{
+    return m->len >= 2 && m->data[0] == MSG_DATA && m->data[1] != DATA_REQUEST && m->data[1] != DATA_DONE;
+}
+
+static int tag_error(session_t *s, const rx_msg_t *m)
+{
+    return fail(&s->j, "tag reported a transfer error (05 %02x)", m->data[1]);
+}
+
+/* The first notification `want` accepts; others are ignored (§4.1). A `05` error stops the wait (§4.2). */
+static rx_result_t wait_rx(want_fn want, int timeout_ms, rx_msg_t *out)
 {
     int64_t until = now_ms() + timeout_ms;
     for (;;) {
         TickType_t ticks = ticks_until(until);
         if (!ticks || !connected() || xQueueReceive(s_rx, out, ticks) != pdTRUE) {
-            return false;
+            return RX_TIMEOUT;
+        }
+        if (is_tag_error(out)) {
+            return RX_TAG_ERROR;
         }
         if (want(out)) {
-            return true;
+            return RX_OK;
         }
         ESP_LOGD(TAG, "ignored notification %02x (%u B)", out->data[0], out->len);
     }
 }
 
-/* SPEC-GAP: §4 names only `05 00 <index>` and `05 08`; other `05` messages are ignored like any
- * notification we aren't waiting for (§4.1). */
 static bool is_block_size(const rx_msg_t *m) { return m->len >= 3 && m->data[0] == CMD_BLOCK_SIZE; }
 static bool is_prepare(const rx_msg_t *m) { return m->len >= 1 && m->data[0] == CMD_PREPARE; }
 static bool is_request(const rx_msg_t *m) { return m->len >= 6 && m->data[0] == MSG_DATA && m->data[1] == DATA_REQUEST; }
@@ -739,6 +753,9 @@ static int stream(session_t *s, uint32_t index)
                         say(&s->j, "05 08 after block %u: done", (unsigned)(i - 1));
                         return 0;
                     }
+                    if (is_tag_error(&m)) {
+                        return tag_error(s, &m);
+                    }
                     if (is_request(&m) && (restart = request(s, &m)) < 0) {
                         return -1;
                     }
@@ -760,7 +777,11 @@ static int stream(session_t *s, uint32_t index)
             continue;
         }
         rx_msg_t m;
-        if (!wait_rx(is_done_or_request, (int)pacing->done_wait_ms, &m)) {
+        rx_result_t r = wait_rx(is_done_or_request, (int)pacing->done_wait_ms, &m);
+        if (r == RX_TAG_ERROR) {
+            return tag_error(s, &m);
+        }
+        if (r != RX_OK) {
             say(&s->j, "no 05 08 after the last block; counting it as done (§4.2)");
             return 0;
         }
@@ -788,7 +809,11 @@ static int legacy(session_t *s, uint32_t index)
         }
         bool last = index == s->count - 1;
         rx_msg_t m;
-        if (!wait_rx(is_done_or_request, T_LEGACY_NEXT, &m)) {
+        rx_result_t r = wait_rx(is_done_or_request, T_LEGACY_NEXT, &m);
+        if (r == RX_TAG_ERROR) {
+            return tag_error(s, &m);
+        }
+        if (r != RX_OK) {
             if (last) { /* SPEC-GAP: silent after the last block counts as done, as in §4.2 */
                 say(&s->j, "no 05 08 after the last block; counting it as done");
                 return 0;
@@ -820,7 +845,11 @@ static int transfer(session_t *s)
         if (command(s, &cmd, 1) != 0) {
             return -1;
         }
-        got = wait_rx(is_block_size, T_BLOCK_SIZE, &m);
+        rx_result_t r = wait_rx(is_block_size, T_BLOCK_SIZE, &m);
+        if (r == RX_TAG_ERROR) {
+            return tag_error(s, &m);
+        }
+        got = r == RX_OK;
         if (!got) {
             say(&s->j, attempt + 1 < BLOCK_SIZE_TRIES ? "no block size answer, asking again" : "no block size answer");
         }
@@ -848,7 +877,11 @@ static int transfer(session_t *s)
     if (command(s, prepare, sizeof(prepare)) != 0) {
         return -1;
     }
-    if (!wait_rx(is_prepare, T_PREPARE, &m)) {
+    rx_result_t r = wait_rx(is_prepare, T_PREPARE, &m);
+    if (r == RX_TAG_ERROR) {
+        return tag_error(s, &m);
+    }
+    if (r != RX_OK) {
         return fail(&s->j, "no answer to the prepare command");
     }
     /* SPEC-GAP: a bare `02` is taken as accepted; §4.1 only rejects a non-zero second byte */
@@ -860,7 +893,11 @@ static int transfer(session_t *s)
     if (command(s, &start, 1) != 0) {
         return -1;
     }
-    if (!wait_rx(is_request, T_FIRST_REQUEST, &m)) {
+    r = wait_rx(is_request, T_FIRST_REQUEST, &m);
+    if (r == RX_TAG_ERROR) {
+        return tag_error(s, &m);
+    }
+    if (r != RX_OK) {
         return fail(&s->j, "tag didn't ask for data after start");
     }
     int64_t index = request(s, &m);

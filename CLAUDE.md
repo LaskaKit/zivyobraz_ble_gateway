@@ -32,7 +32,8 @@ Long term goal: their own gateway, Python first.
 - **ESP32 firmware updates (2026-11-23, user's decision: GitHub releases + signatures, install on click):**
   `esp32/main/update.c` reads `releases/latest/download/latest.json` of `ZO_OTA_REPO` (menuconfig, empty by
   default), and *Install* pulls the `-ota.bin` with `esp_https_ota`. Apps are RSA-signed without secure boot
-  (`sdkconfig.defaults`). `release.sh` signs with `signing_key.pem` / `$ZO_SIGNING_KEY`, and CI with the
+  (`sdkconfig.release`, **release builds only**: ESP-IDF won't boot an unsigned app with the check on, so it
+  must not go back into `sdkconfig.defaults`; 2026-11-27). `release.sh` signs with `signing_key.pem` / `$ZO_SIGNING_KEY`, and CI with the
   `ZO_SIGNING_KEY` secret on tags. An unsigned dev build refuses all updates. Never commit a key, and never
   sign `dist/` with a test key.
 
@@ -67,6 +68,9 @@ don't "fix" it back to the usual panel naming.
 - **Strictly a Živý obraz gateway for Picksmart `NEMR…` tags.** Only the panel types in PROTOCOL.md §2
   (SDK 46, 75, 160, 270, 299) are supported; add a type only after testing it on a real tag.
   Other tag brands (e.g. hoootag `EPD-…`) are out of scope; don't bring them back.
+  (2026-11-27: the vendor PDF "Bluetooth Tag Protocol V1.5" turned out to be the **Picksmart** protocol,
+  not the hoootag one; the hoootag XL 4.2" `EPD-44DBF065` has only a `FFE0`/`FFE1`/`FFE2` service.
+  Using that vendor spec is fine under the clean-room rule; PROTOCOL.md marks its facts "vendor:".)
 - **Clean-room rule:** the Picksmart code (Python and C) was rewritten from `PROTOCOL.md` alone (2026-11-20);
   spec gaps are marked `SPEC-GAP` in the code. Don't read, clone
   or fetch other Picksmart/Gicisky implementations (dratek-eink-homeassistant, hass-gicisky, gicisky,

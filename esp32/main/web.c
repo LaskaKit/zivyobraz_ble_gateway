@@ -743,6 +743,12 @@ static esp_err_t import_post(httpd_req_t *req)
 #if CONFIG_ZO_WEB_OTA
 static esp_err_t update_post(httpd_req_t *req)
 {
+    upd_status_t u;
+    update_status(&u);
+    if (!u.signed_app) { /* a dev build can't verify the upload (update.c) */
+        return httpd_resp_sendstr(req, "Refused: this firmware isn't signed (a development build), so it can't "
+                                       "check an update. Flash a release's -full.bin over USB.");
+    }
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     esp_ota_handle_t ota = 0;
     if (!part || esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &ota) != ESP_OK) {

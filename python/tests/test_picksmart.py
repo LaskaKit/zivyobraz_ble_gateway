@@ -71,9 +71,9 @@ class Models(unittest.TestCase):
         self.assertEqual((ACKED.ack_every_block, ACKED.ack_last_block, ACKED.gap, ACKED.done_wait),
                          (True, True, 0.005, 2))
         self.assertEqual((STREAM.ack_every_block, STREAM.ack_last_block, STREAM.gap, STREAM.done_wait),
-                         (False, False, 0.040, 20))
+                         (False, False, 0.005, 20))
         self.assertEqual((FENCED.ack_every_block, FENCED.ack_last_block, FENCED.gap, FENCED.done_wait),
-                         (False, True, 0.100, 60))
+                         (False, True, 0.020, 60))
 
 
 class Advert(unittest.TestCase):  # §1
@@ -390,6 +390,21 @@ class Transfers(unittest.TestCase):
         self.assertEqual(tag.commands[:2], [b"\x01", b"\x01"])
         with self.assertRaisesRegex(TransferError, "block size"):
             run(FakeTag(block_size_silent=2), self.payload)
+
+    def test_error_status_aborts(self):  # §4.2
+        # after the last block: an error, not "no 05 08, counting it as done"
+        tag = FakeTag(on_block=lambda t, i, last: last and t.say(5, 1, 4, 0, 0, 0), done=False)
+        with self.assertRaisesRegex(TransferError, "transfer error .05 01"):
+            run(tag, self.payload)
+        # mid-stream: stops sending at once
+        tag = FakeTag(on_block=lambda t, i, last: i == 1 and t.say(5, 3))
+        with self.assertRaisesRegex(TransferError, "transfer error"):
+            run(tag, self.payload)
+        self.assertEqual([b[0] for b in tag.blocks], [0, 1])
+        # legacy
+        tag = FakeTag(on_block=lambda t, i, last: t.say(5, 2, i, 0, 0, 0))
+        with self.assertRaisesRegex(TransferError, "transfer error"):
+            run(tag, self.payload, streaming=False)
 
     def test_prepare_rejected(self):
         with self.assertRaisesRegex(TransferError, "rejected"):

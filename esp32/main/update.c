@@ -61,8 +61,12 @@ static void set_state(upd_state_t state, const char *fmt, ...)
 void update_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
+#if CONFIG_SECURE_SIGNED_ON_UPDATE /* release build (sdkconfig.release) */
     esp_image_sig_public_key_digests_t keys = {0};
     s_st.signed_app = esp_secure_boot_get_signature_blocks_for_running_app(false, &keys) == ESP_OK;
+#else /* dev build: no signature check in esp_ota_end(), so refuse every update ourselves */
+    s_st.signed_app = false;
+#endif
     s_st.state = CONFIG_ZO_OTA_REPO[0] ? UPD_IDLE : UPD_OFF;
     if (!s_st.signed_app) {
         ESP_LOGW(TAG, "this firmware isn't signed: it can't verify updates, so it refuses them");

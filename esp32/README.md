@@ -88,8 +88,14 @@ gateway or publish on the GitHub repository still can't install their own firmwa
   it is also the repository secret **`ZO_SIGNING_KEY`** (the whole PEM text), given to tag builds only.
 * **Keep a backup offline. If the key is lost, the gateways can be updated only over USB.** If it leaks,
   make a new one and reflash every gateway over USB.
-* A development build (`idf.py build`/`flash`) is unsigned: it runs fine, but it can't verify anything, so it
-  refuses every update (the settings page says so). Flash a release's `-full.bin` to get back to updates.
+* A development build (`idf.py build`/`flash`) is unsigned and built **without** the signature check
+  (that lives in `sdkconfig.release`, which only `release.sh` uses). It runs fine, but it can't verify
+  anything, so it refuses every update, both GitHub and upload (the settings page says so). Flash a
+  release's `-full.bin` to get back to updates.
+* Never flash an unsigned app built with `sdkconfig.release`: ESP-IDF aborts at boot ("This app is not
+  signed, but check signature on update is enabled") and the board boot-loops. A signed image fixes it.
+  That's why the signing options aren't in `sdkconfig.defaults` (until 2026-11-27 they were, and every
+  plain `idf.py flash` boot-looped).
 * Coming from 0.2.0 (unsigned, no signature check): upload the first signed release's `-ota.bin` on the
   settings page once. From then on only signed updates are accepted.
 * Signing needs chip revision 3 or later (every ESP32-WROOM-32E). An older chip refuses to install the update
@@ -126,9 +132,14 @@ the default poll limits, the web update switch, the release repository and updat
 PHY reset 5, RMII clock out on 17, LED on 0). Older ESPlan boards (v2.0 and earlier) had the LED on IO35,
 an input-only pin: turn the LED off there.
 
-**Binaries to hand out:** `./release.sh` builds, signs (see [Updates](#updates); without a key it
-warns and leaves them unsigned), and writes `dist/zivyobraz-ble-gateway-esp32-<version>-{full,ota}.bin`,
-`latest.json` and `SHA256SUMS`. The version is in `version.txt`. The GitHub workflow
+**Binaries to hand out:** `./release.sh` builds, signs (see [Updates](#updates)), and writes
+`dist/zivyobraz-ble-gateway-esp32-<version>-{full,ota}.bin`, `latest.json` and `SHA256SUMS`
+(`--out DIR` writes elsewhere). With the key it builds in `build-release/` with
+`sdkconfig.defaults` + `sdkconfig.release`. Without one it warns and makes an unsigned dev build in
+`build-unsigned/`. Both start from the defaults alone, so a local `menuconfig` never ends up in a release.
+To test a signed build on a board without touching NVS and `tags.json`, flash the app regions only:
+`cd build-release && python -m esptool --chip esp32 -p /dev/ttyUSB0 write-flash @flash_args`.
+(The `-full.bin` overwrites NVS with blank data.) The version is in `version.txt`. The GitHub workflow
 [`.github/workflows/esp32.yml`](../.github/workflows/esp32.yml) runs the tests, builds, and on a `v*` tag
 signs and attaches the files to a GitHub release.
 
@@ -163,6 +174,7 @@ The BLE transfer (`components/picksmart_ble`) is written from PROTOCOL.md §3–
 | `components/picksmart_ble/` | NimBLE scanner and transfer (from PROTOCOL.md §3–§4, mirrors `client.py`) |
 | `components/zivyobraz/` | request, answer headers, streaming Z2/Z3 decoder (portable), HTTPS client |
 | `partitions.csv` | 2 × 3 MB app slots, ~10 MB LittleFS (16 MB flash) |
-| `sdkconfig.defaults` | BLE-only NimBLE central, Ethernet, small-RAM TLS, signed app images |
+| `sdkconfig.defaults` | BLE-only NimBLE central, Ethernet, small-RAM TLS |
+| `sdkconfig.release` | release builds only (`release.sh`): signed app images, signature check on update |
 | `test/host/` | PC tests against the Python gateway |
 | `release.sh` | builds and signs the binaries to hand out, and `latest.json` |

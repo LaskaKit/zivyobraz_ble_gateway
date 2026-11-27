@@ -30,6 +30,7 @@ CMD_START = 0x03
 MSG_DATA = 0x05            # 05 <status> <u32 index>
 DATA_REQUEST = 0x00        # "send from block <index>"
 DATA_DONE = 0x08           # all data received
+CMD_CANCEL = 0x04          # §4.1 note: in the vendor document, but our tags don't answer it; not used
 FULL_REFRESH = 0x01
 BLOCK_HEADER = 4           # u32 block index in front of every data block
 
@@ -79,11 +80,7 @@ def block(payload: bytes, index: int, block_size: int) -> bytes:
 
 
 def parse_data_message(msg: bytes) -> tuple[int, int | None] | None:
-    """`05 <status> [<u32 index>]` -> (status, index or None). None for anything else.
-
-    SPEC-GAP: §4 names only status 00 (with an index) and 08; any other `05` message is treated as
-    a notification we aren't waiting for and ignored (§4.1).
-    """
+    """`05 <status> [<u32 index>]` -> (status, index or None). None for anything else."""
     if len(msg) < 2 or msg[0] != MSG_DATA:
         return None
     index = struct.unpack_from("<I", msg, 2)[0] if len(msg) >= 6 else None
@@ -98,6 +95,16 @@ def is_request(msg: bytes) -> bool:
 def is_done(msg: bytes) -> bool:
     parsed = parse_data_message(msg)
     return parsed is not None and parsed[0] == DATA_DONE
+
+
+def is_error(msg: bytes) -> bool:
+    """§4.2: a `05` status other than 00 and 08 is a transfer error."""
+    parsed = parse_data_message(msg)
+    return parsed is not None and parsed[0] not in (DATA_REQUEST, DATA_DONE)
+
+
+def tag_error(msg: bytes) -> TransferError:
+    return TransferError(f"tag reported a transfer error ({msg.hex(' ')})")
 
 
 class Link(Protocol):
@@ -146,7 +153,10 @@ class Transfer:
             raise TransferError(f"write of command {data[:1].hex()} timed out") from None
 
     async def _wait(self, wanted: Callable[[bytes], bool], timeout: float) -> bytes | None:
-        """The first notification `wanted` accepts; others are logged and ignored (§4.1)."""
+        """The first notification `wanted` accepts; others are logged and ignored (§4.1).
+
+        A `05` error status aborts (§4.2).
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout * self.scale
         while True:
@@ -156,6 +166,8 @@ class Transfer:
             msg = await self.link.receive(left)
             if msg is None:
                 return None
+            if is_error(msg):
+                raise tag_error(msg)
             if wanted(msg):
                 return msg
             logger.debug(f"ignored notification {msg.hex(' ')}")
@@ -242,6 +254,8 @@ class Transfer:
                         if is_request(msg):
                             restart = self._request(msg)
                             break
+                        if is_error(msg):
+                            raise tag_error(msg)
                         logger.debug(f"ignored notification {msg.hex(' ')}")
                     if restart is not None:
                         break
@@ -435,6 +449,7 @@ __all__ = [
     "TransferError",
     "block",
     "block_count",
+    "is_error",
     "parse_data_message",
     "prepare_command",
 ]
